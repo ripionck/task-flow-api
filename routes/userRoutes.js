@@ -6,20 +6,20 @@ const {
   updateUserSettings,
   deleteUser,
 } = require('../controllers/userController');
-const { protect, authorize } = require('../middlewares/auth');
+const { protect, adminCheck } = require('../middlewares/auth');
 
 const router = express.Router();
 
 // Apply auth middleware to all routes
 router.use(protect);
 
-router.route('/').get(authorize('admin'), getUsers);
+router.route('/').get(adminCheck, getUsers);
 
 router
   .route('/:id')
   .get(getUser)
   .put(updateUser)
-  .delete(authorize('admin'), deleteUser);
+  .delete(adminCheck, deleteUser);
 
 router.put('/:id/settings', updateUserSettings);
 

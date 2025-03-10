@@ -5,7 +5,7 @@ const User = require('../models/User');
 // @access  Public
 exports.register = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, role, email, password } = req.body;
 
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -15,7 +15,7 @@ exports.register = async (req, res, next) => {
       });
     }
 
-    const user = await User.create({ name, email, password });
+    const user = await User.create({ name, role, email, password });
 
     sendTokenResponse(
       user,

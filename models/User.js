@@ -30,8 +30,8 @@ const UserSchema = new mongoose.Schema({
   },
   role: {
     type: String,
+    required: [true, 'Please add a role'],
     trim: true,
-    default: 'Team Member',
   },
   status: {
     type: String,
