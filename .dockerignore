@@ -1,0 +1,34 @@
+# Exclude dependencies (rebuilt in the container)
+node_modules
+
+# Exclude version control
+.git
+.gitignore
+
+# Ignore environment files (sensitive data)
+.env
+.env.local
+.env.development
+.env.test
+
+# Exclude logs and temporary files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ignore IDE/configurations
+.idea
+.vscode
+.DS_Store
+
+# Exclude testing files
+**/__tests__
+coverage
+
+# Docker-related files (already processed)
+docker-compose.yml
+.dockerignore
+
+# Build artifacts (if applicable)
+dist
+build

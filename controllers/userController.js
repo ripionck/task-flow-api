@@ -1,11 +1,12 @@
 const User = require('../models/User');
+const TeamMember = require('../models/TeamMember');
 
 // @desc    Get all users
 // @route   GET /api/users
 // @access  Private/Admin
 exports.getUsers = async (req, res, next) => {
   try {
-    const users = await User.find();
+    const users = await User.find().lean();
 
     res.status(200).json({
       success: true,
@@ -22,7 +23,7 @@ exports.getUsers = async (req, res, next) => {
 // @access  Private
 exports.getUser = async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findById(req.params.id).lean();
 
     if (!user) {
       return res.status(404).json({
@@ -45,30 +46,39 @@ exports.getUser = async (req, res, next) => {
 // @access  Private
 exports.updateUser = async (req, res, next) => {
   try {
-    // Check if the user is updating their own profile or is an admin
-    if (req.user.id !== req.params.id && req.user.role !== 'admin') {
+    if (req.user.id !== req.params.id && !req.user.isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this user',
       });
     }
 
-    // Don't allow password update via this route
-    if (req.body.password) {
-      delete req.body.password;
+    const allowedFields = [
+      'name',
+      'email',
+      'avatar',
+      'role',
+      'status',
+      'statusColor',
+      'isTeamMember',
+    ];
+
+    // Only admins can update admin status
+    if (req.user.isAdmin) {
+      allowedFields.push('isAdmin');
     }
 
-    const user = await User.findByIdAndUpdate(req.params.id, req.body, {
+    const filteredBody = Object.keys(req.body)
+      .filter((key) => allowedFields.includes(key))
+      .reduce((obj, key) => {
+        obj[key] = req.body[key];
+        return obj;
+      }, {});
+
+    const user = await User.findByIdAndUpdate(req.params.id, filteredBody, {
       new: true,
       runValidators: true,
     });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
 
     res.status(200).json({
       success: true,
@@ -84,7 +94,6 @@ exports.updateUser = async (req, res, next) => {
 // @access  Private
 exports.updateUserSettings = async (req, res, next) => {
   try {
-    // Check if the user is updating their own settings
     if (req.user.id !== req.params.id) {
       return res.status(403).json({
         success: false,
@@ -92,22 +101,11 @@ exports.updateUserSettings = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    // Update settings
-    user.settings = {
-      ...user.settings,
-      ...req.body,
-    };
-
-    await user.save();
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { $set: { settings: req.body } },
+      { new: true, runValidators: true },
+    );
 
     res.status(200).json({
       success: true,
@@ -123,7 +121,14 @@ exports.updateUserSettings = async (req, res, next) => {
 // @access  Private/Admin
 exports.deleteUser = async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id);
+    if (req.user.systemRole !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to delete users',
+      });
+    }
+
+    const user = await User.findByIdAndDelete(req.params.id);
 
     if (!user) {
       return res.status(404).json({
@@ -132,7 +137,8 @@ exports.deleteUser = async (req, res, next) => {
       });
     }
 
-    await user.remove();
+    // Remove user from all teams
+    await TeamMember.deleteMany({ userId: user._id });
 
     res.status(200).json({
       success: true,

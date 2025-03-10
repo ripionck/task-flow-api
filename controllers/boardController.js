@@ -6,13 +6,25 @@ const TeamMember = require('../models/TeamMember');
 // @access  Private
 exports.createBoard = async (req, res, next) => {
   try {
-    // Add user to request body
-    req.body.createdBy = req.user.id;
+    const User = require('../models/User');
+    const user = await User.findById(req.user.id).select('fullName');
 
-    // Create board
-    const board = await Board.create(req.body);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
 
-    // Add the creator as the owner of the board
+    const boardData = {
+      ...req.body,
+      createdBy: user.fullName,
+      team: [req.user.id],
+      teamNames: [user.fullName],
+    };
+
+    const board = await Board.create(boardData);
+
     await TeamMember.create({
       userId: req.user.id,
       boardId: board._id,
@@ -33,14 +45,10 @@ exports.createBoard = async (req, res, next) => {
 // @access  Private
 exports.getBoards = async (req, res, next) => {
   try {
-    // Find all boards where the user is a team member
     const teamMemberships = await TeamMember.find({ userId: req.user.id });
     const boardIds = teamMemberships.map((tm) => tm.boardId);
 
-    const boards = await Board.find({ _id: { $in: boardIds } }).populate({
-      path: 'createdBy',
-      select: 'fullName email avatar',
-    });
+    const boards = await Board.find({ _id: { $in: boardIds } });
 
     res.status(200).json({
       success: true,
@@ -57,10 +65,7 @@ exports.getBoards = async (req, res, next) => {
 // @access  Private
 exports.getBoard = async (req, res, next) => {
   try {
-    const board = await Board.findById(req.params.id).populate({
-      path: 'createdBy',
-      select: 'fullName email avatar',
-    });
+    const board = await Board.findById(req.params.id);
 
     if (!board) {
       return res.status(404).json({
@@ -69,7 +74,6 @@ exports.getBoard = async (req, res, next) => {
       });
     }
 
-    // Check if user is a team member of this board
     const teamMember = await TeamMember.findOne({
       userId: req.user.id,
       boardId: board._id,
@@ -105,7 +109,6 @@ exports.updateBoard = async (req, res, next) => {
       });
     }
 
-    // Check if user is an owner or admin of this board
     const teamMember = await TeamMember.findOne({
       userId: req.user.id,
       boardId: board._id,
@@ -149,7 +152,6 @@ exports.deleteBoard = async (req, res, next) => {
       });
     }
 
-    // Check if user is an owner of this board
     const teamMember = await TeamMember.findOne({
       userId: req.user.id,
       boardId: board._id,
@@ -165,7 +167,8 @@ exports.deleteBoard = async (req, res, next) => {
       });
     }
 
-    await board.remove();
+    await TeamMember.deleteMany({ boardId: board._id });
+    await Board.deleteOne({ _id: req.params.id });
 
     res.status(200).json({
       success: true,
@@ -190,7 +193,6 @@ exports.getBoardTeam = async (req, res, next) => {
       });
     }
 
-    // Check if user is a team member of this board
     const teamMember = await TeamMember.findOne({
       userId: req.user.id,
       boardId: board._id,
@@ -233,6 +235,7 @@ exports.addTeamMember = async (req, res, next) => {
     }
 
     const board = await Board.findById(req.params.id);
+    const User = require('../models/User');
 
     if (!board) {
       return res.status(404).json({
@@ -241,7 +244,6 @@ exports.addTeamMember = async (req, res, next) => {
       });
     }
 
-    // Check if user is an owner or admin of this board
     const teamMember = await TeamMember.findOne({
       userId: req.user.id,
       boardId: board._id,
@@ -257,7 +259,6 @@ exports.addTeamMember = async (req, res, next) => {
       });
     }
 
-    // Check if the user is already a member
     const existingMember = await TeamMember.findOne({
       userId,
       boardId: board._id,
@@ -270,12 +271,25 @@ exports.addTeamMember = async (req, res, next) => {
       });
     }
 
-    // Add new team member
     const newTeamMember = await TeamMember.create({
       userId,
       boardId: board._id,
       role,
     });
+
+    const user = await User.findById(userId).select('fullName');
+    if (user) {
+      const update = {};
+      if (!board.team.includes(userId)) {
+        update.$push = { team: userId };
+      }
+      if (user.fullName && !board.teamNames.includes(user.fullName)) {
+        update.$push = { ...update.$push, teamNames: user.fullName };
+      }
+      if (Object.keys(update).length > 0) {
+        await Board.findByIdAndUpdate(board._id, update);
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -292,6 +306,7 @@ exports.addTeamMember = async (req, res, next) => {
 exports.removeTeamMember = async (req, res, next) => {
   try {
     const board = await Board.findById(req.params.id);
+    const User = require('../models/User');
 
     if (!board) {
       return res.status(404).json({
@@ -300,7 +315,6 @@ exports.removeTeamMember = async (req, res, next) => {
       });
     }
 
-    // Check if user is an owner of this board
     const teamMember = await TeamMember.findOne({
       userId: req.user.id,
       boardId: board._id,
@@ -316,7 +330,6 @@ exports.removeTeamMember = async (req, res, next) => {
       });
     }
 
-    // Cannot remove the owner
     const memberToRemove = await TeamMember.findOne({
       userId: req.params.userId,
       boardId: board._id,
@@ -336,7 +349,20 @@ exports.removeTeamMember = async (req, res, next) => {
       });
     }
 
-    await memberToRemove.remove();
+    await TeamMember.deleteOne({ _id: memberToRemove._id });
+
+    const userToRemove = await User.findById(req.params.userId).select(
+      'fullName',
+    );
+    if (userToRemove) {
+      const update = {
+        $pull: { team: req.params.userId },
+      };
+      if (userToRemove.fullName) {
+        update.$pull.teamNames = userToRemove.fullName;
+      }
+      await Board.findByIdAndUpdate(board._id, update);
+    }
 
     res.status(200).json({
       success: true,
@@ -370,7 +396,6 @@ exports.updateTeamMemberRole = async (req, res, next) => {
       });
     }
 
-    // Check if user is an owner of this board
     const teamMember = await TeamMember.findOne({
       userId: req.user.id,
       boardId: board._id,
@@ -386,7 +411,6 @@ exports.updateTeamMemberRole = async (req, res, next) => {
       });
     }
 
-    // Find the member to update
     const memberToUpdate = await TeamMember.findOne({
       userId: req.params.userId,
       boardId: board._id,
@@ -399,7 +423,6 @@ exports.updateTeamMemberRole = async (req, res, next) => {
       });
     }
 
-    // Cannot change the role of the owner
     if (memberToUpdate.role === 'owner') {
       return res.status(400).json({
         success: false,
@@ -413,6 +436,63 @@ exports.updateTeamMemberRole = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: memberToUpdate,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Update board progress
+// @route   PUT /api/boards/:id/progress
+// @access  Private
+exports.updateBoardProgress = async (req, res, next) => {
+  try {
+    const { progress, totalTasks, completedTasks } = req.body;
+
+    let updateData = {};
+
+    if (progress !== undefined) {
+      updateData.progress = Math.min(Math.max(progress, 0), 100);
+    }
+
+    if (totalTasks !== undefined) {
+      updateData.totalTasks = totalTasks;
+    }
+
+    if (completedTasks !== undefined) {
+      updateData.completedTasks = completedTasks;
+    }
+
+    const board = await Board.findById(req.params.id);
+
+    if (!board) {
+      return res.status(404).json({
+        success: false,
+        message: 'Board not found',
+      });
+    }
+
+    const teamMember = await TeamMember.findOne({
+      userId: req.user.id,
+      boardId: board._id,
+    });
+
+    if (!teamMember && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to update this board',
+      });
+    }
+
+    const updatedBoard = await Board.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true },
+    );
+
+    res.status(200).json({
+      success: true,
+      data: updatedBoard,
     });
   } catch (error) {
     next(error);

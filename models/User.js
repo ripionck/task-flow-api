@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 
 const UserSchema = new mongoose.Schema({
-  fullName: {
+  name: {
     type: String,
     required: [true, 'Please add a name'],
     trim: true,
@@ -30,8 +30,25 @@ const UserSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['user', 'admin'],
-    default: 'user',
+    trim: true,
+    default: 'Team Member',
+  },
+  status: {
+    type: String,
+    enum: ['Active', 'Away', 'Inactive'],
+    default: 'Active',
+  },
+  statusColor: {
+    type: String,
+    default: 'bg-green-100 text-green-700',
+  },
+  isTeamMember: {
+    type: Boolean,
+    default: false,
+  },
+  isAdmin: {
+    type: Boolean,
+    default: false,
   },
   settings: {
     emailNotifications: {
@@ -49,7 +66,7 @@ const UserSchema = new mongoose.Schema({
     },
     accentColor: {
       type: String,
-      default: '#3b82f6', // Default blue color
+      default: '#3b82f6',
     },
   },
   createdAt: {
@@ -58,24 +75,43 @@ const UserSchema = new mongoose.Schema({
   },
 });
 
-// Encrypt password using bcrypt
-UserSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
-    next();
-  }
+// Virtuals
+UserSchema.virtual('initials').get(function () {
+  return this.name
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase()
+    .substring(0, 2);
+});
 
+// Transform output
+UserSchema.set('toJSON', {
+  virtuals: true,
+  transform: (doc, ret) => {
+    ret.id = ret._id.toString();
+    delete ret._id;
+    delete ret.__v;
+    delete ret.password;
+    return ret;
+  },
+});
+
+// Encrypt password
+UserSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) next();
   const salt = await bcrypt.genSalt(config.saltRounds);
   this.password = await bcrypt.hash(this.password, salt);
 });
 
-// Sign JWT and return
+// JWT Token
 UserSchema.methods.getSignedJwtToken = function () {
   return jwt.sign({ id: this._id }, config.jwtSecret, {
     expiresIn: config.jwtExpire,
   });
 };
 
-// Match user entered password to hashed password in database
+// Match password
 UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };

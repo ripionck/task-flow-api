@@ -5,11 +5,9 @@ const User = require('../models/User');
 // @access  Public
 exports.register = async (req, res, next) => {
   try {
-    const { fullName, email, password } = req.body;
+    const { name, email, password } = req.body;
 
-    // Check if user exists
     const userExists = await User.findOne({ email });
-
     if (userExists) {
       return res.status(400).json({
         success: false,
@@ -17,14 +15,14 @@ exports.register = async (req, res, next) => {
       });
     }
 
-    // Create user
-    const user = await User.create({
-      fullName,
-      email,
-      password,
-    });
+    const user = await User.create({ name, email, password });
 
-    sendTokenResponse(user, 201, res);
+    sendTokenResponse(
+      user,
+      201,
+      res,
+      'Registration successful! Welcome to the platform.',
+    );
   } catch (error) {
     next(error);
   }
@@ -37,51 +35,22 @@ exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    // Validate email & password
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide an email and password',
+        message: 'Please provide email and password',
       });
     }
 
-    // Check for user
     const user = await User.findOne({ email }).select('+password');
-
-    if (!user) {
+    if (!user || !(await user.matchPassword(password))) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials',
       });
     }
 
-    // Check if password matches
-    const isMatch = await user.matchPassword(password);
-
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials',
-      });
-    }
-
-    sendTokenResponse(user, 200, res);
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get current logged in user
-// @route   GET /api/auth/me
-// @access  Private
-exports.getMe = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.id);
-
-    res.status(200).json({
-      success: true,
-      data: user,
-    });
+    sendTokenResponse(user, 200, res, 'Login successful! Welcome back.');
   } catch (error) {
     next(error);
   }
@@ -101,17 +70,17 @@ exports.logout = async (req, res, next) => {
   }
 };
 
-// Helper function to get token from model, create cookie and send response
-const sendTokenResponse = (user, statusCode, res) => {
-  // Create token
+// Helper function
+const sendTokenResponse = (user, statusCode, res, message) => {
   const token = user.getSignedJwtToken();
 
-  // Remove password from output
-  user.password = undefined;
+  // Format user data using toJSON() to include virtuals and transformations
+  const userData = user.toJSON();
 
   res.status(statusCode).json({
     success: true,
+    message,
     token,
-    user,
+    user: userData,
   });
 };

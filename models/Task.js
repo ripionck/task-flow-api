@@ -19,9 +19,17 @@ const TaskSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  tag: {
+    type: String,
+    trim: true,
+  },
+  tagColor: {
+    type: String,
+    trim: true,
+  },
   status: {
     type: String,
-    enum: ['todo', 'inProgress', 'done'],
+    enum: ['todo', 'inProgress', 'review', 'done'],
     default: 'todo',
   },
   priority: {
@@ -30,20 +38,23 @@ const TaskSchema = new mongoose.Schema({
     default: 'medium',
   },
   dueDate: {
-    type: Date,
+    type: String,
+    trim: true,
   },
-  tags: [
+  assignees: [
     {
       type: String,
       trim: true,
     },
   ],
-  assignees: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
-  ],
+  attachments: {
+    type: Number,
+    default: 0,
+  },
+  comments: {
+    type: Number,
+    default: 0,
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
