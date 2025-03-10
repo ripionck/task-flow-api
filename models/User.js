@@ -40,11 +40,7 @@ const UserSchema = new mongoose.Schema({
   },
   statusColor: {
     type: String,
-    default: 'bg-green-100 text-green-700',
-  },
-  isTeamMember: {
-    type: Boolean,
-    default: false,
+    default: '#10B981',
   },
   isAdmin: {
     type: Boolean,
@@ -83,6 +79,17 @@ UserSchema.virtual('initials').get(function () {
     .join('')
     .toUpperCase()
     .substring(0, 2);
+});
+
+// Automatically set statusColor based on status
+UserSchema.pre('save', function (next) {
+  const statusColorMap = {
+    Active: '#10B981',
+    Away: '#FBBF24',
+    Inactive: '#6B7280',
+  };
+  this.statusColor = statusColorMap[this.status] || '#10B981';
+  next();
 });
 
 // Transform output

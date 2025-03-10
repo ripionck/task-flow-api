@@ -59,7 +59,7 @@ const BoardSchema = new mongoose.Schema({
   },
 });
 
-// Virtual fields
+// Virtual for dueIn calculation
 BoardSchema.virtual('dueIn').get(function () {
   if (!this.dueDate) return null;
   const diff = this.dueDate - Date.now();
@@ -73,6 +73,7 @@ BoardSchema.virtual('dueIn').get(function () {
   return `${Math.floor(days / 30)} months`;
 });
 
+// Virtual for team initials
 BoardSchema.virtual('team').get(function () {
   return this.teamNames.map((name) =>
     name
