@@ -28,19 +28,9 @@ const BoardSchema = new mongoose.Schema({
     min: 0,
     max: 100,
   },
-  dueIn: {
-    type: String,
-    trim: true,
-  },
   dueDate: {
     type: Date,
   },
-  team: [
-    {
-      type: String,
-      trim: true,
-    },
-  ],
   teamNames: [
     {
       type: String,
@@ -49,7 +39,6 @@ const BoardSchema = new mongoose.Schema({
   ],
   createdBy: {
     type: String,
-    trim: true,
     required: true,
   },
   createdAt: {
@@ -70,10 +59,38 @@ const BoardSchema = new mongoose.Schema({
   },
 });
 
-// Update lastUpdated timestamp before saving
-BoardSchema.pre('save', function (next) {
-  this.lastUpdated = Date.now();
-  next();
+// Virtual fields
+BoardSchema.virtual('dueIn').get(function () {
+  if (!this.dueDate) return null;
+  const diff = this.dueDate - Date.now();
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+
+  if (days < 0) return 'Overdue';
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  if (days < 7) return `${days} days`;
+  if (days < 30) return `${Math.floor(days / 7)} weeks`;
+  return `${Math.floor(days / 30)} months`;
+});
+
+BoardSchema.virtual('team').get(function () {
+  return this.teamNames.map((name) =>
+    name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2),
+  );
+});
+
+BoardSchema.set('toJSON', {
+  virtuals: true,
+  transform: (doc, ret) => {
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
 });
 
 module.exports = mongoose.model('Board', BoardSchema);

@@ -9,14 +9,17 @@ const {
   addTeamMember,
   removeTeamMember,
   updateTeamMemberRole,
+  updateBoardProgress,
 } = require('../controllers/boardController');
-const { getBoardTasks } = require('../controllers/taskController');
-const { protect } = require('../middlewares/auth');
+const { protect, adminCheck } = require('../middlewares/auth');
 
 const router = express.Router();
 
 // Apply auth middleware to all routes
 router.use(protect);
+
+// Admin-only routes
+router.use(adminCheck);
 
 router.route('/').get(getBoards).post(createBoard);
 
@@ -29,6 +32,6 @@ router
   .delete(removeTeamMember)
   .put(updateTeamMemberRole);
 
-router.route('/:boardId/tasks').get(getBoardTasks);
+router.route('/:id/progress').put(updateBoardProgress);
 
 module.exports = router;
