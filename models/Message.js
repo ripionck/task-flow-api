@@ -19,6 +19,12 @@ const MessageSchema = new mongoose.Schema({
     type: String,
     size: Number,
   },
+  seenBy: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+  ],
   createdAt: {
     type: Date,
     default: Date.now,
