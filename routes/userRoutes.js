@@ -3,8 +3,10 @@ const {
   getUsers,
   getUser,
   updateUser,
-  updateUserSettings,
   deleteUser,
+  addTeamMember,
+  removeTeamMember,
+  updateUserSettings,
 } = require('../controllers/userController');
 const { protect, adminCheck } = require('../middlewares/auth');
 
@@ -21,6 +23,10 @@ router
   .put(updateUser)
   .delete(adminCheck, deleteUser);
 
-router.put('/:id/settings', updateUserSettings);
+router.route('/:id/settings').put(updateUserSettings);
+
+// Team membership routes
+router.put('/:id/add-member', adminCheck, addTeamMember);
+router.put('/:id/remove-member', adminCheck, removeTeamMember);
 
 module.exports = router;

@@ -148,3 +148,49 @@ exports.deleteUser = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Add user to team
+// @route   PUT /api/users/:id/add-member
+// @access  Private/Admin
+exports.addTeamMember = async (req, res, next) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { isTeamMember: true },
+      { new: true, runValidators: true },
+    );
+
+    // Optional: Add to TeamMember collection if needed
+    // await TeamMember.create({ userId: user._id, boardId: req.body.boardId });
+
+    res.status(200).json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Remove user from team
+// @route   PUT /api/users/:id/remove-member
+// @access  Private/Admin
+exports.removeTeamMember = async (req, res, next) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { isTeamMember: false },
+      { new: true, runValidators: true },
+    );
+
+    // Optional: Remove from TeamMember collection
+    // await TeamMember.deleteMany({ userId: user._id });
+
+    res.status(200).json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
