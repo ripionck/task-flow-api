@@ -8,6 +8,9 @@ const User = require('../models/User');
 const connectedUsers = new Map();
 const userSockets = new Map();
 
+// Track message read status by user
+const messageReadStatus = new Map();
+
 const setupSocketServer = (server) => {
   // Create socket.io server with proper CORS configuration
   const io = socketIo(server, {
@@ -74,54 +77,14 @@ const setupSocketServer = (server) => {
         );
 
         socket.emit('users:online', onlineUsers);
-      }
-    });
 
-    // Join a board room to receive updates for that board
-    socket.on('board:join', (boardId) => {
-      if (boardId) {
-        console.log(`Socket ${socket.id} joined board: ${boardId}`);
-        socket.join(`board:${boardId}`);
-      }
-    });
+        // Initialize message read status for user if not existing
+        if (!messageReadStatus.has(userId)) {
+          messageReadStatus.set(userId, new Set());
+        }
 
-    // Leave a board room
-    socket.on('board:leave', (boardId) => {
-      if (boardId) {
-        console.log(`Socket ${socket.id} left board: ${boardId}`);
-        socket.leave(`board:${boardId}`);
-      }
-    });
-
-    // Handle user typing in comments or chat
-    socket.on('comment:typing', ({ taskId, isTyping }) => {
-      const userData = connectedUsers.get(socket.id);
-      if (userData && taskId) {
-        // For global chat use 'global' as taskId
-        const room = taskId === 'global' ? 'global' : `task:${taskId}`;
-
-        // Broadcast to appropriate room
-        socket.to(room).emit('comment:typing', {
-          taskId,
-          user: userData,
-          isTyping,
-        });
-      }
-    });
-
-    // Join a task room to receive updates for comments
-    socket.on('task:join', (taskId) => {
-      if (taskId) {
-        console.log(`Socket ${socket.id} joined task: ${taskId}`);
-        socket.join(`task:${taskId}`);
-      }
-    });
-
-    // Leave a task room
-    socket.on('task:leave', (taskId) => {
-      if (taskId) {
-        console.log(`Socket ${socket.id} left task: ${taskId}`);
-        socket.leave(`task:${taskId}`);
+        // Send unread message counts to all connected users
+        sendUnreadCountsToAll(io);
       }
     });
 
@@ -153,6 +116,13 @@ const setupSocketServer = (server) => {
           savedMessage._id,
         ).populate('user', 'name avatar');
 
+        // Sender automatically marks their own message as read
+        if (messageReadStatus.has(userData.userId)) {
+          messageReadStatus
+            .get(userData.userId)
+            .add(savedMessage._id.toString());
+        }
+
         // Include tempId in the response to the sender
         socket.emit('newMessage', {
           ...populatedMessage.toObject(),
@@ -161,12 +131,45 @@ const setupSocketServer = (server) => {
 
         // Broadcast to everyone else WITHOUT the tempId
         socket.broadcast.emit('newMessage', populatedMessage);
+
+        // Update unread counts for all users
+        sendUnreadCountsToAll(io);
       } catch (err) {
         console.error('Error sending message:', err);
         socket.emit('error', {
           message: 'Failed to send message: ' + err.message,
         });
       }
+    });
+
+    // Handle message read status
+    socket.on('message:read', async ({ messageIds }) => {
+      try {
+        const userData = connectedUsers.get(socket.id);
+        if (!userData) {
+          return socket.emit('error', { message: 'User not authenticated' });
+        }
+
+        // Update read status for this user
+        if (!messageReadStatus.has(userData.userId)) {
+          messageReadStatus.set(userData.userId, new Set());
+        }
+
+        // Add all message IDs to the user's read set
+        for (const messageId of messageIds) {
+          messageReadStatus.get(userData.userId).add(messageId);
+        }
+
+        // Notify all clients about updated read status
+        sendUnreadCountsToAll(io);
+      } catch (err) {
+        console.error('Error updating message read status:', err);
+      }
+    });
+
+    // Request for unread counts
+    socket.on('unread:request', () => {
+      sendUnreadCountsToAll(io);
     });
 
     // Handle disconnect
@@ -193,6 +196,64 @@ const setupSocketServer = (server) => {
       }
     });
   });
+
+  // Function to calculate and send unread counts to all users
+  const sendUnreadCountsToAll = async (io) => {
+    try {
+      // Get all messages from the database
+      const allMessages = await Message.find({}).sort('createdAt');
+
+      // Create a map of users to their unread message counts
+      const unreadCounts = {};
+
+      // Get all unique user IDs from connected users
+      const userIds = new Set(
+        Array.from(connectedUsers.values()).map((user) => user.userId),
+      );
+
+      // Initialize unread counts for all users
+      for (const userId of userIds) {
+        unreadCounts[userId] = {};
+
+        // For each user, calculate unread messages from each other user
+        for (const otherUserId of userIds) {
+          if (userId !== otherUserId) {
+            unreadCounts[userId][otherUserId] = 0;
+          }
+        }
+      }
+
+      // Calculate unread counts
+      for (const message of allMessages) {
+        const senderId = message.user.toString();
+        const messageId = message._id.toString();
+
+        // For each user, check if they've read this message
+        for (const userId of userIds) {
+          // Skip messages sent by the user themselves
+          if (userId === senderId) continue;
+
+          // Check if user has read this message
+          const userReadMessages = messageReadStatus.get(userId) || new Set();
+          if (!userReadMessages.has(messageId)) {
+            // Increment unread count for this sender for this user
+            if (unreadCounts[userId][senderId] !== undefined) {
+              unreadCounts[userId][senderId]++;
+            }
+          }
+        }
+      }
+
+      // Send unread counts to each user
+      for (const userId of userIds) {
+        if (userSockets.has(userId)) {
+          io.to(`user:${userId}`).emit('unread:counts', unreadCounts[userId]);
+        }
+      }
+    } catch (err) {
+      console.error('Error calculating unread counts:', err);
+    }
+  };
 
   return { io, userSockets };
 };
