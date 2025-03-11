@@ -1,5 +1,4 @@
 const User = require('../models/User');
-const TeamMember = require('../models/TeamMember');
 
 // @desc    Get all users
 // @route   GET /api/users

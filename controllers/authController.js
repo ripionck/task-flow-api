@@ -70,6 +70,44 @@ exports.logout = async (req, res, next) => {
   }
 };
 
+// @desc    Get user profile
+// @route   GET /api/auth/profile
+// @access  Private
+exports.getMe = async (req, res, next) => {
+  try {
+    // Ensure req.user is populated by authentication middleware
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized - No user found in request',
+      });
+    }
+
+    // Fetch user data excluding password
+    const user = await User.findById(req.user.id).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'User profile retrieved successfully',
+      user: user.toJSON(),
+    });
+  } catch (error) {
+    console.error('Error in getMe:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message,
+    });
+  }
+};
+
 // Helper function
 const sendTokenResponse = (user, statusCode, res, message) => {
   const token = user.getSignedJwtToken();

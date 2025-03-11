@@ -1,5 +1,4 @@
 const Board = require('../models/Board');
-const TeamMember = require('../models/TeamMemberMember');
 
 // @desc    Create new board
 // @route   POST /api/boards

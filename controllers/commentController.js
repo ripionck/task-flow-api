@@ -1,6 +1,5 @@
 const Comment = require('../models/Comment');
 const Task = require('../models/Task');
-const TeamMember = require('../models/TeamMember');
 const Notification = require('../models/Notification');
 
 // @desc    Create new comment

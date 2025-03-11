@@ -1,6 +1,5 @@
 const Task = require('../models/Task');
 const Board = require('../models/Board');
-const TeamMember = require('../models/TeamMember');
 const Notification = require('../models/Notification');
 
 // @desc    Create new task

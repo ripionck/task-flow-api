@@ -3,9 +3,20 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const connectDB = require('./config/db');
+const config = require('./config/config');
 const errorHandler = require('./middlewares/error');
+const { protect } = require('./middlewares/auth');
 const http = require('http');
 const socketIo = require('socket.io');
+const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
+
+// Models
+const Message = require('./models/Message');
+const User = require('./models/User');
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -23,23 +34,46 @@ connectDB();
 
 const app = express();
 const server = http.createServer(app);
+
+// Create socket.io server with proper CORS configuration
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || '*', // Replace with your client URL in production
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    methods: ['GET', 'POST'],
     credentials: true,
   },
+  transports: ['websocket'],
 });
 
 // Socket.io connection management
-const connectedUsers = new Map(); // Store socket to user mapping
-const userSockets = new Map(); // Store user to socket mapping
+const connectedUsers = new Map();
+const userSockets = new Map();
 
+// Socket authentication middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  console.log('Token received from client:', token);
+  if (!token) {
+    return next(new Error('Authentication error: Token missing'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, config.jwtSecret);
+    console.log('Decoded user data:', decoded);
+    socket.user = decoded;
+    next();
+  } catch (err) {
+    console.error('Token verification failed:', err);
+    return next(new Error('Authentication error: Invalid token'));
+  }
+});
+
+// SINGLE socket.io connection handler
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
 
   // Authenticate socket connection with user token
-  socket.on('authenticate', ({ userId, username }) => {
+  socket.on('authenticate', async ({ userId, username }) => {
     if (userId) {
       console.log(`User authenticated: ${username} (${userId})`);
 
@@ -89,13 +123,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle user typing in comments
-  socket.on('comment:typing', ({ taskId, user }) => {
+  // Handle user typing in comments or chat
+  socket.on('comment:typing', ({ taskId, isTyping }) => {
     const userData = connectedUsers.get(socket.id);
     if (userData && taskId) {
-      socket.to(`task:${taskId}`).emit('comment:typing', {
+      // For global chat use 'global' as taskId
+      const room = taskId === 'global' ? 'global' : `task:${taskId}`;
+
+      // Broadcast to appropriate room
+      socket.to(room).emit('comment:typing', {
         taskId,
-        user: user || userData,
+        user: userData,
+        isTyping,
       });
     }
   });
@@ -113,6 +152,50 @@ io.on('connection', (socket) => {
     if (taskId) {
       console.log(`Socket ${socket.id} left task: ${taskId}`);
       socket.leave(`task:${taskId}`);
+    }
+  });
+
+  // Message sending handler - SINGLE implementation
+  socket.on('sendMessage', async ({ text, file, tempId }) => {
+    try {
+      const userData = connectedUsers.get(socket.id);
+      if (!userData) {
+        return socket.emit('error', { message: 'User not authenticated' });
+      }
+
+      // Get full user data from database
+      const user = await User.findById(userData.userId).select('-password');
+      if (!user) {
+        return socket.emit('error', { message: 'User not found' });
+      }
+
+      // Create a new message
+      const message = new Message({
+        text: text || '',
+        user: user._id,
+        file: file || null,
+        createdAt: new Date(),
+      });
+
+      // Save to database
+      const savedMessage = await message.save();
+      const populatedMessage = await Message.findById(
+        savedMessage._id,
+      ).populate('user', 'name avatar');
+
+      // Include tempId in the response to the sender
+      socket.emit('newMessage', {
+        ...populatedMessage.toObject(),
+        tempId,
+      });
+
+      // Broadcast to everyone else WITHOUT the tempId
+      socket.broadcast.emit('newMessage', populatedMessage);
+    } catch (err) {
+      console.error('Error sending message:', err);
+      socket.emit('error', {
+        message: 'Failed to send message: ' + err.message,
+      });
     }
   });
 
@@ -144,6 +227,24 @@ io.on('connection', (socket) => {
 // Make io accessible throughout the application
 app.set('io', io);
 
+// Set up file upload storage
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueFilename = `${uuidv4()}-${file.originalname}`;
+    cb(null, uniqueFilename);
+  },
+});
+
+const upload = multer({ storage });
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -158,7 +259,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// API Routes
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/boards', boardRoutes);
@@ -166,9 +267,54 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+app.get('/api/messages', protect, async (req, res) => {
+  try {
+    const messages = await Message.find()
+      .populate('user', 'name avatar')
+      .sort({ createdAt: 1 }) // Changed to ascending order
+      .limit(50);
+
+    const messagesWithFlag = messages.map((msg) => ({
+      ...msg.toObject(),
+      isCurrentUser: msg.user._id.toString() === req.user.userId,
+    }));
+
+    res.json(messagesWithFlag);
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Handle file uploads - Add auth middleware
+app.post('/api/upload', protect, upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${
+      req.file.filename
+    }`;
+
+    res.json({
+      name: req.file.originalname,
+      url: fileUrl,
+      type: req.file.mimetype,
+      size: req.file.size,
+    });
+  } catch (error) {
+    console.error('File upload error:', error);
+    res.status(500).json({ message: 'File upload failed' });
+  }
+});
+
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Root route
 app.get('/', (req, res) => {
-  res.send('TaskFlow API is running');
+  res.send('Task Management API is running');
 });
 
 // Error handler

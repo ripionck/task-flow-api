@@ -8,7 +8,6 @@ const {
   updateBoardProgress,
 } = require('../controllers/boardController');
 const { protect, adminCheck } = require('../middlewares/auth');
-const teamRouter = require('./teamRoutes');
 
 const router = express.Router();
 
@@ -20,7 +19,5 @@ router.route('/').get(getBoards).post(createBoard);
 router.route('/:id').get(getBoard).put(updateBoard).delete(deleteBoard);
 
 router.route('/:id/progress').put(updateBoardProgress);
-
-router.use('/:id/team', teamRouter);
 
 module.exports = router;

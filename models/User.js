@@ -46,6 +46,10 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  isTeamMember: {
+    type: Boolean,
+    default: false,
+  },
   settings: {
     emailNotifications: {
       type: Boolean,
