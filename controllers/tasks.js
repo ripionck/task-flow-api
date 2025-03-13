@@ -199,7 +199,7 @@ exports.deleteTask = asyncHandler(async (req, res, next) => {
     );
   }
 
-  await task.remove();
+  await task.deleteOne();
 
   // Create activity log
   await ActivityLog.create({
