@@ -1,34 +1,33 @@
 const mongoose = require('mongoose');
 
 const MessageSchema = new mongoose.Schema({
-  text: {
+  senderId: {
     type: String,
-    required: function () {
-      return !this.file;
-    },
-    trim: true,
-  },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
   },
-  file: {
-    name: String,
-    url: String,
+  receiverId: {
     type: String,
-    size: Number,
+    ref: 'User',
+    required: true,
   },
-  seenBy: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
-  ],
+  text: {
+    type: String,
+    required: [true, 'Please provide a message'],
+    trim: true,
+    maxlength: [1000, 'Message cannot be more than 1000 characters'],
+  },
+  isRead: {
+    type: Boolean,
+    default: false,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
   },
 });
+
+// Create a compound index for efficient querying of conversations
+MessageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Message', MessageSchema);

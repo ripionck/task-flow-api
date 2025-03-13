@@ -5,6 +5,11 @@ const connectDB = async () => {
     mongoose.set('strictQuery', true);
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
       authSource: 'admin',
+      writeConcern: {
+        w: 'majority',
+        wtimeout: 5000,
+        j: true,
+      },
     });
 
     console.log(`MongoDB Connected: ${conn.connection.host}`);

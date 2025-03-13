@@ -1,128 +1,91 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const config = require('../config/config');
 
-const UserSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Please add a name'],
-    trim: true,
-  },
-  email: {
-    type: String,
-    required: [true, 'Please add an email'],
-    unique: true,
-    match: [
-      /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
-      'Please add a valid email',
-    ],
-  },
-  password: {
-    type: String,
-    required: [true, 'Please add a password'],
-    minlength: 6,
-    select: false,
-  },
-  avatar: {
-    type: String,
-    default: 'https://api.dicebear.com/7.x/avataaars/svg',
-  },
-  role: {
-    type: String,
-    required: [true, 'Please add a role'],
-    trim: true,
-  },
-  status: {
-    type: String,
-    enum: ['Active', 'Away', 'Inactive'],
-    default: 'Active',
-  },
-  statusColor: {
-    type: String,
-    default: '#10B981',
-  },
-  isAdmin: {
-    type: Boolean,
-    default: false,
-  },
-  isTeamMember: {
-    type: Boolean,
-    default: false,
-  },
-  settings: {
-    emailNotifications: {
-      type: Boolean,
-      default: true,
-    },
-    desktopNotifications: {
-      type: Boolean,
-      default: true,
-    },
-    themeMode: {
+const UserSchema = new mongoose.Schema(
+  {
+    username: {
       type: String,
-      enum: ['light', 'dark', 'system'],
-      default: 'system',
+      required: [true, 'Please provide a username'],
+      unique: true,
+      trim: true,
+      maxlength: [20, 'Username cannot be more than 20 characters'],
     },
-    accentColor: {
+    displayId: {
       type: String,
-      default: '#3b82f6',
+      required: [true, 'Please provide a display ID'],
+      unique: true,
+      trim: true,
+      maxlength: [5, 'Display ID cannot be more than 5 characters'],
+    },
+    name: {
+      type: String,
+      required: [true, 'Please provide a name'],
+      trim: true,
+      maxlength: [50, 'Name cannot be more than 50 characters'],
+    },
+    email: {
+      type: String,
+      required: [true, 'Please provide an email'],
+      unique: true,
+      match: [
+        /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/,
+        'Please provide a valid email',
+      ],
+    },
+    password: {
+      type: String,
+      required: [true, 'Please provide a password'],
+      minlength: [6, 'Password must be at least 6 characters long'],
+      select: false,
+    },
+    role: {
+      type: String,
+      enum: [
+        'Product Manager',
+        'Designer',
+        'Developer',
+        'Marketing Specialist',
+        'QA Engineer',
+        'Backend Developer',
+        'UI/UX Designer',
+        'Frontend Developer',
+        'Project Coordinator',
+        'DevOps Engineer',
+      ],
+      required: true,
+    },
+    color: {
+      type: String,
+      default: 'bg-blue-600',
+    },
+    isAdmin: {
+      type: Boolean,
+      default: false,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now,
     },
   },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-});
+  { timestamps: true },
+);
 
-// Virtuals
-UserSchema.virtual('initials').get(function () {
-  return this.name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .substring(0, 2);
-});
+// Hash password before saving
+UserSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) {
+    next();
+  }
 
-// Automatically set statusColor based on status
-UserSchema.pre('save', function (next) {
-  const statusColorMap = {
-    Active: '#10B981',
-    Away: '#FBBF24',
-    Inactive: '#6B7280',
-  };
-  this.statusColor = statusColorMap[this.status] || '#10B981';
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
   next();
 });
 
-// Transform output
-UserSchema.set('toJSON', {
-  virtuals: true,
-  transform: (doc, ret) => {
-    ret.id = ret._id.toString();
-    delete ret._id;
-    delete ret.__v;
-    delete ret.password;
-    return ret;
-  },
-});
-
-// Encrypt password
-UserSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) next();
-  const salt = await bcrypt.genSalt(config.saltRounds);
-  this.password = await bcrypt.hash(this.password, salt);
-});
-
-// JWT Token
-UserSchema.methods.getSignedJwtToken = function () {
-  return jwt.sign({ id: this._id }, config.jwtSecret, {
-    expiresIn: config.jwtExpire,
-  });
-};
-
-// Match password
+// Match password method
 UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };

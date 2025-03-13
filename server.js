@@ -1,139 +1,123 @@
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const http = require('http');
-const fs = require('fs');
 const path = require('path');
-const multer = require('multer');
-const { v4: uuidv4 } = require('uuid');
-
+const express = require('express');
+const morgan = require('morgan');
+const colors = require('colors');
+const fileupload = require('express-fileupload');
+const cookieParser = require('cookie-parser');
+const cors = require('cors');
+const mongoSanitize = require('express-mongo-sanitize');
+const helmet = require('helmet');
+const xss = require('xss-clean');
+const rateLimit = require('express-rate-limit');
+const hpp = require('hpp');
+const http = require('http');
+const socketIo = require('socket.io');
+const errorHandler = require('./middleware/error');
 const connectDB = require('./config/db');
-const errorHandler = require('./middlewares/error');
-const { protect } = require('./middlewares/auth');
-
-const Message = require('./models/Message');
-const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes');
-const boardRoutes = require('./routes/boardRoutes');
-const taskRoutes = require('./routes/taskRoutes');
-const commentRoutes = require('./routes/commentRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
-
-const setupSocketServer = require('./service/socketService');
+const { socketAuth } = require('./middleware/auth');
+const { handleSocketConnection } = require('./socket/socketHandler');
 
 require('dotenv').config();
 
 // Connect to database
 connectDB();
 
-// Initialize Express and HTTP server
+// Route files
+const auth = require('./routes/auth');
+const users = require('./routes/users');
+const projects = require('./routes/projects');
+const tasks = require('./routes/tasks');
+const comments = require('./routes/comments');
+const attachments = require('./routes/attachments');
+const events = require('./routes/events');
+const messages = require('./routes/messages');
+const activity = require('./routes/activity');
+
 const app = express();
+
+// Create HTTP server
 const server = http.createServer(app);
 
-// Set up socket.io
-const { io, userSockets } = setupSocketServer(server);
+// Initialize Socket.io
+const io = socketIo(server, {
+  cors: {
+    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
+});
 
-// Make io accessible throughout the application
-app.set('io', io);
+// Body parser
+app.use(express.json());
 
-// Set up file upload storage
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+// Cookie parser
+app.use(cookieParser());
+
+// Dev logging middleware
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueFilename = `${uuidv4()}-${file.originalname}`;
-    cb(null, uniqueFilename);
-  },
-});
+// File uploading
+app.use(fileupload());
 
-const upload = multer({ storage });
+// Sanitize data
+app.use(mongoSanitize());
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+// Set security headers
 app.use(helmet());
-app.use(morgan('dev'));
 
-// Socket.io middleware for routes
-app.use((req, res, next) => {
-  req.io = io;
-  req.userSockets = userSockets;
-  next();
+// Prevent XSS attacks
+app.use(xss());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 mins
+  max: 100,
 });
+app.use(limiter);
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/boards', boardRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/comments', commentRoutes);
-app.use('/api/notifications', notificationRoutes);
+// Prevent http param pollution
+app.use(hpp());
 
-app.get('/api/messages', protect, async (req, res) => {
-  try {
-    const messages = await Message.find()
-      .populate('user', 'name avatar')
-      .sort({ createdAt: 1 })
-      .limit(50);
+// Enable CORS
+app.use(cors());
 
-    const messagesWithFlag = messages.map((msg) => ({
-      ...msg.toObject(),
-      isCurrentUser: msg.user._id.toString() === req.user.userId,
-    }));
+// Set static folder
+app.use(express.static(path.join(__dirname, 'public')));
 
-    res.json(messagesWithFlag);
-  } catch (error) {
-    console.error('Error fetching messages:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
+// Mount routers
+app.use('/api/auth', auth);
+app.use('/api/users', users);
+app.use('/api/projects', projects);
+app.use('/api/tasks', tasks);
+app.use('/api/comments', comments);
+app.use('/api/attachments', attachments);
+app.use('/api/events', events);
+app.use('/api/messages', messages);
+app.use('/api/activity', activity);
 
-// Handle file uploads - Add auth middleware
-app.post('/api/upload', protect, upload.single('file'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
-    }
-
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${
-      req.file.filename
-    }`;
-
-    res.json({
-      name: req.file.originalname,
-      url: fileUrl,
-      type: req.file.mimetype,
-      size: req.file.size,
-    });
-  } catch (error) {
-    console.error('File upload error:', error);
-    res.status(500).json({ message: 'File upload failed' });
-  }
-});
-
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Root route
-app.get('/', (req, res) => {
-  res.send('Task Management API is running');
-});
-
-// Error handler
 app.use(errorHandler);
+
+// Socket.io middleware for authentication
+io.use(socketAuth);
+
+// Handle socket connections
+io.on('connection', (socket) => handleSocketConnection(io, socket));
 
 const PORT = process.env.PORT || 5000;
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+server.listen(
+  PORT,
+  console.log(
+    `Server running in ${process.env.NODE_ENV} mode on port ${PORT}`.yellow
+      .bold,
+  ),
+);
 
-module.exports = app;
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err, promise) => {
+  console.log(`Error: ${err.message}`.red);
+  // Close server & exit process
+  server.close(() => process.exit(1));
+});
