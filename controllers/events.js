@@ -159,7 +159,7 @@ exports.deleteEvent = asyncHandler(async (req, res, next) => {
     );
   }
 
-  await event.remove();
+  await event.deleteOne();
 
   // Create activity log
   await ActivityLog.create({
