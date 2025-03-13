@@ -6,6 +6,17 @@ const ErrorResponse = require('../utils/errorResponse');
 // @route   GET /api/users
 // @access  Private/Admin
 exports.getUsers = asyncHandler(async (req, res, next) => {
+  if (req.query.all === 'true') {
+    const users = await User.find();
+
+    return res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users,
+    });
+  }
+
+  // Otherwise use the advancedResults middleware results
   res.status(200).json(res.advancedResults);
 });
 

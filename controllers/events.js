@@ -7,11 +7,33 @@ const ErrorResponse = require('../utils/errorResponse');
 // @route   GET /api/events
 // @access  Private
 exports.getEvents = asyncHandler(async (req, res, next) => {
-  // Add filter for events where user is an attendee
-  if (!req.query.attendee && !req.user.isAdmin) {
-    req.query.attendees = { $in: [req.user.displayId] };
+  // If admin wants all events
+  if (req.user.isAdmin && req.query.all === 'true') {
+    const events = await Event.find();
+
+    return res.status(200).json({
+      success: true,
+      count: events.length,
+      data: events,
+    });
   }
 
+  // For regular users or filtered admin requests
+  if (!req.query.attendees && !req.user.isAdmin) {
+    // This won't work with advancedResults as it's already processed
+    // Instead, directly query for events where user is an attendee
+    const events = await Event.find({
+      attendees: { $in: [req.user.displayId] },
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: events.length,
+      data: events,
+    });
+  }
+
+  // For admins with filtering through advancedResults
   res.status(200).json(res.advancedResults);
 });
 

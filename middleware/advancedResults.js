@@ -15,7 +15,7 @@ const advancedResults = (model, populate) => async (req, res, next) => {
 
   // Create operators ($gt, $gte, etc)
   queryStr = queryStr.replace(
-    /\b(gt|gte|lt|lte|in)\b/g,
+    /(?<!\$)(gt|gte|lt|lte|in)\b/g,
     (match) => `$${match}`,
   );
 

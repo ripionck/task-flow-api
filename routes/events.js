@@ -8,8 +8,13 @@ const {
   deleteEvent,
 } = require('../controllers/events');
 const { protect } = require('../middleware/auth');
+const advancedResults = require('../middleware/advancedResults');
+const Event = require('../models/Event');
 
-router.route('/').get(protect, getEvents).post(protect, createEvent);
+router
+  .route('/')
+  .get(protect, advancedResults(Event), getEvents)
+  .post(protect, createEvent);
 
 router
   .route('/:id')

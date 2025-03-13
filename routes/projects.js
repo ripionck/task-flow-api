@@ -9,12 +9,16 @@ const {
   toggleStarProject,
 } = require('../controllers/projects');
 const { protect } = require('../middleware/auth');
+const advancedResults = require('../middleware/advancedResults');
+const Project = require('../models/Project');
 
-// Include task routes for project tasks
 const taskRouter = require('./tasks');
 router.use('/:projectId/tasks', taskRouter);
 
-router.route('/').get(protect, getProjects).post(protect, createProject);
+router
+  .route('/')
+  .get(protect, advancedResults(Project), getProjects)
+  .post(protect, createProject);
 
 router
   .route('/:id')

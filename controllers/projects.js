@@ -8,11 +8,32 @@ const ErrorResponse = require('../utils/errorResponse');
 // @route   GET /api/projects
 // @access  Private
 exports.getProjects = asyncHandler(async (req, res, next) => {
-  // Add filter for projects where user is an assignee
-  if (!req.query.assignee && !req.user.isAdmin) {
-    req.query.assignees = { $in: [req.user.displayId] };
+  // If admin wants all projects
+  if (req.user.isAdmin && req.query.all === 'true') {
+    const projects = await Project.find();
+
+    return res.status(200).json({
+      success: true,
+      count: projects.length,
+      data: projects,
+    });
   }
 
+  if (!req.query.assignees && !req.user.isAdmin) {
+    // This won't work with advancedResults as it's already processed
+    // Instead, we need to modify the query before advancedResults is called
+    const projects = await Project.find({
+      assignees: { $in: [req.user.displayId] },
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: projects.length,
+      data: projects,
+    });
+  }
+
+  // For admins with filtering through advancedResults
   res.status(200).json(res.advancedResults);
 });
 

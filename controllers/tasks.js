@@ -9,6 +9,7 @@ const ErrorResponse = require('../utils/errorResponse');
 // @route   GET /api/projects/:projectId/tasks
 // @access  Private
 exports.getTasks = asyncHandler(async (req, res, next) => {
+  // If getting tasks for a specific project
   if (req.params.projectId) {
     const tasks = await Task.find({ project: req.params.projectId });
 
@@ -17,14 +18,31 @@ exports.getTasks = asyncHandler(async (req, res, next) => {
       count: tasks.length,
       data: tasks,
     });
-  } else {
-    // Add filter for tasks where user is an assignee
-    if (!req.query.assignee && !req.user.isAdmin) {
-      req.query.assignees = { $in: [req.user.displayId] };
-    }
-
-    res.status(200).json(res.advancedResults);
   }
+
+  // If admin wants all tasks
+  if (req.user.isAdmin && req.query.all === 'true') {
+    const tasks = await Task.find();
+
+    return res.status(200).json({
+      success: true,
+      count: tasks.length,
+      data: tasks,
+    });
+  }
+
+  // For regular users, get only their assigned tasks
+  if (!req.user.isAdmin) {
+    const tasks = await Task.find({ assignees: { $in: [req.user.displayId] } });
+
+    return res.status(200).json({
+      success: true,
+      count: tasks.length,
+      data: tasks,
+    });
+  }
+
+  res.status(200).json(res.advancedResults);
 });
 
 // @desc    Get single task

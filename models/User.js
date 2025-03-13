@@ -56,7 +56,11 @@ const UserSchema = new mongoose.Schema(
     },
     color: {
       type: String,
-      default: 'bg-blue-600',
+      default: '#3b82f6',
+      match: [
+        /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/,
+        'Please use a valid hex color code (e.g., #3b82f6)',
+      ],
     },
     isAdmin: {
       type: Boolean,

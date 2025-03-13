@@ -8,10 +8,12 @@ const {
   deleteUser,
 } = require('../controllers/users');
 const { protect, authorize } = require('../middleware/auth');
+const User = require('../models/User');
+const advancedResults = require('../middleware/advancedResults');
 
 router
   .route('/')
-  .get(protect, getUsers)
+  .get(protect, advancedResults(User), getUsers)
   .post(protect, authorize('admin'), createUser);
 
 router
