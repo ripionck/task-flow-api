@@ -162,7 +162,7 @@ exports.deleteProject = asyncHandler(async (req, res, next) => {
   // Delete all tasks associated with this project
   await Task.deleteMany({ project: req.params.id });
 
-  await project.remove();
+  await project.deleteOne();
 
   // Create activity log
   await ActivityLog.create({
