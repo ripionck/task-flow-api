@@ -97,6 +97,13 @@ app.use('/api/events', events);
 app.use('/api/messages', messages);
 app.use('/api/activity', activity);
 
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Welcome to the TaskFlow API',
+  });
+});
+
 app.use(errorHandler);
 
 // Socket.io middleware for authentication
