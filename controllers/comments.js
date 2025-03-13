@@ -132,7 +132,7 @@ exports.deleteComment = asyncHandler(async (req, res, next) => {
     );
   }
 
-  await comment.remove();
+  await comment.deleteOne();
 
   res.status(200).json({
     success: true,
