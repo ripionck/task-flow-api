@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const Project = require('../models/Project');
 const ActivityLog = require('../models/ActivityLog');
+const { logActivity } = require('../middleware/logger');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 
@@ -119,6 +120,16 @@ exports.createTask = asyncHandler(async (req, res, next) => {
   }
 
   const task = await Task.create(req.body);
+
+  // Log activity
+  await logActivity(
+    req,
+    req.user,
+    'created',
+    'task',
+    task._id,
+    `Created task: ${task.title}`,
+  );
 
   // Create activity log
   await ActivityLog.create({

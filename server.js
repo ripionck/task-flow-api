@@ -41,7 +41,7 @@ const server = http.createServer(app);
 // Initialize Socket.io
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -96,6 +96,8 @@ app.use('/api/attachments', attachments);
 app.use('/api/events', events);
 app.use('/api/messages', messages);
 app.use('/api/activity', activity);
+
+app.use('/api/reports', require('./routes/reports'));
 
 app.get('/', (req, res) => {
   res.status(200).json({

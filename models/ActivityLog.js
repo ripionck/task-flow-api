@@ -1,73 +1,44 @@
 const mongoose = require('mongoose');
 
 const ActivityLogSchema = new mongoose.Schema({
-  userId: {
-    type: String,
+  user: {
+    type: mongoose.Schema.ObjectId,
     ref: 'User',
     required: true,
   },
   action: {
     type: String,
+    required: [true, 'Please add an action'],
     enum: [
       'created',
       'updated',
       'deleted',
-      'commented on',
       'completed',
+      'commented',
+      'uploaded',
       'assigned',
     ],
-    required: true,
   },
-  targetType: {
+  resource: {
     type: String,
-    enum: ['task', 'project', 'event', 'comment'],
+    required: [true, 'Please add a resource type'],
+    enum: ['project', 'task', 'comment', 'attachment', 'event'],
+  },
+  resourceId: {
+    type: mongoose.Schema.ObjectId,
     required: true,
   },
-  targetId: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true,
-    refPath: 'targetType',
-  },
-  targetName: {
+  details: {
     type: String,
-    required: true,
   },
-  timestamp: {
+  createdAt: {
     type: Date,
     default: Date.now,
   },
 });
 
-// Create a method to format the time display
-ActivityLogSchema.methods.getTimeDisplay = function () {
-  const now = new Date();
-  const diff = now - this.timestamp;
-
-  // Less than a minute
-  if (diff < 60000) {
-    return 'Just now';
-  }
-
-  // Less than an hour
-  if (diff < 3600000) {
-    const minutes = Math.floor(diff / 60000);
-    return `${minutes} min ago`;
-  }
-
-  // Less than a day
-  if (diff < 86400000) {
-    const hours = Math.floor(diff / 3600000);
-    return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-  }
-
-  // Less than a week
-  if (diff < 604800000) {
-    const days = Math.floor(diff / 86400000);
-    return days === 1 ? 'Yesterday' : `${days} days ago`;
-  }
-
-  // Format as date
-  return this.timestamp.toLocaleDateString();
-};
+// Index for faster queries
+ActivityLogSchema.index({ user: 1, createdAt: -1 });
+ActivityLogSchema.index({ resourceId: 1 });
 
 module.exports = mongoose.model('ActivityLog', ActivityLogSchema);
