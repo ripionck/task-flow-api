@@ -11,7 +11,10 @@ const ErrorResponse = require('../utils/errorResponse');
 exports.getProjects = asyncHandler(async (req, res, next) => {
   // If admin wants all projects
   if (req.user.isAdmin && req.query.all === 'true') {
-    const projects = await Project.find();
+    const projects = await Project.find().populate(
+      'assignees',
+      'name email role color displayId',
+    );
 
     return res.status(200).json({
       success: true,
@@ -25,7 +28,7 @@ exports.getProjects = asyncHandler(async (req, res, next) => {
     // Instead, we need to modify the query before advancedResults is called
     const projects = await Project.find({
       assignees: { $in: [req.user.displayId] },
-    });
+    }).populate('assignees', 'name email role color displayId');
 
     return res.status(200).json({
       success: true,
@@ -42,7 +45,10 @@ exports.getProjects = asyncHandler(async (req, res, next) => {
 // @route   GET /api/projects/:id
 // @access  Private
 exports.getProject = asyncHandler(async (req, res, next) => {
-  const project = await Project.findById(req.params.id);
+  const project = await Project.findById(req.params.id).populate(
+    'assignees',
+    'name email role color displayId',
+  );
 
   if (!project) {
     return next(
@@ -51,7 +57,12 @@ exports.getProject = asyncHandler(async (req, res, next) => {
   }
 
   // Check if user is assigned to the project or is an admin
-  if (!project.assignees.includes(req.user.displayId) && !req.user.isAdmin) {
+  if (
+    !project.assignees.some(
+      (assignee) => assignee.displayId === req.user.displayId,
+    ) &&
+    !req.user.isAdmin
+  ) {
     return next(
       new ErrorResponse(
         `User ${req.user.id} is not authorized to access this project`,

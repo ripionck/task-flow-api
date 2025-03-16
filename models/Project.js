@@ -25,7 +25,7 @@ const ProjectSchema = new mongoose.Schema(
     },
     assignees: [
       {
-        type: String,
+        type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
       },

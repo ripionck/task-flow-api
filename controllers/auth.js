@@ -6,20 +6,46 @@ const ErrorResponse = require('../utils/errorResponse');
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
+// In the auth controller (modified register function)
 exports.register = asyncHandler(async (req, res, next) => {
-  const { username, name, email, password, role } = req.body;
+  const { name, email, role, password } = req.body;
 
-  // Check if user already exists
+  // Check if user already exists by email
   const existingUser = await User.findOne({ email });
   if (existingUser) {
     return next(new ErrorResponse('User with this email already exists', 400));
   }
 
-  // Generate a display ID from the first letter of first name and last name
-  const nameParts = name.split(' ');
-  const displayId = (
-    nameParts[0][0] + (nameParts[1] ? nameParts[1][0] : '')
-  ).toUpperCase();
+  // Generate username
+  let baseUsername = name
+    .toLowerCase()
+    .replace(/\s+/g, '.')
+    .replace(/[^a-z.]/g, '');
+  let username = baseUsername;
+  let usernameCounter = 1;
+
+  while (await User.findOne({ username })) {
+    username = `${baseUsername}${usernameCounter}`;
+    usernameCounter++;
+  }
+
+  // Generate displayId
+  const nameParts = name.split(' ').filter((part) => part.length > 0);
+  if (nameParts.length === 0) {
+    return next(new ErrorResponse('Name is required', 400));
+  }
+
+  const firstName = nameParts[0];
+  const lastName = nameParts[nameParts.length - 1];
+  let displayIdBase = (firstName[0] + lastName.slice(-1)).toUpperCase();
+
+  let displayId = displayIdBase;
+  let displayIdCounter = 1;
+
+  while (await User.findOne({ displayId })) {
+    displayId = `${displayIdBase}${displayIdCounter}`;
+    displayIdCounter++;
+  }
 
   // Create user
   const user = await User.create({
