@@ -12,7 +12,9 @@ const ErrorResponse = require('../utils/errorResponse');
 exports.getTasks = asyncHandler(async (req, res, next) => {
   // If getting tasks for a specific project
   if (req.params.projectId) {
-    const tasks = await Task.find({ project: req.params.projectId });
+    const tasks = await Task.find({ project: req.params.projectId })
+      .populate('assignees', 'name email role color displayId')
+      .populate('project');
 
     return res.status(200).json({
       success: true,
@@ -23,7 +25,9 @@ exports.getTasks = asyncHandler(async (req, res, next) => {
 
   // If admin wants all tasks
   if (req.user.isAdmin && req.query.all === 'true') {
-    const tasks = await Task.find();
+    const tasks = await Task.find()
+      .populate('assignees', 'name email role color displayId')
+      .populate('project');
 
     return res.status(200).json({
       success: true,
@@ -34,7 +38,9 @@ exports.getTasks = asyncHandler(async (req, res, next) => {
 
   // For regular users, get only their assigned tasks
   if (!req.user.isAdmin) {
-    const tasks = await Task.find({ assignees: { $in: [req.user.displayId] } });
+    const tasks = await Task.find({ assignees: { $in: [req.user.displayId] } })
+      .populate('assignees', 'name email role color displayId')
+      .populate('project');
 
     return res.status(200).json({
       success: true,
@@ -50,7 +56,9 @@ exports.getTasks = asyncHandler(async (req, res, next) => {
 // @route   GET /api/tasks/:id
 // @access  Private
 exports.getTask = asyncHandler(async (req, res, next) => {
-  const task = await Task.findById(req.params.id).populate('project');
+  const task = await Task.findById(req.params.id)
+    .populate('assignees', 'name email role color displayId')
+    .populate('project');
 
   if (!task) {
     return next(
@@ -60,7 +68,9 @@ exports.getTask = asyncHandler(async (req, res, next) => {
 
   // Check if user is assigned to the task or project, or is an admin
   if (
-    !task.assignees.includes(req.user.displayId) &&
+    !task.assignees.some(
+      (assignee) => assignee.displayId === req.user.displayId,
+    ) &&
     !task.project.assignees.includes(req.user.displayId) &&
     !req.user.isAdmin
   ) {

@@ -25,7 +25,7 @@ const TaskSchema = new mongoose.Schema(
     },
     assignees: [
       {
-        type: String,
+        type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
       },
@@ -49,7 +49,7 @@ const TaskSchema = new mongoose.Schema(
       required: [true, 'Please provide a due date'],
     },
     createdBy: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
     },
