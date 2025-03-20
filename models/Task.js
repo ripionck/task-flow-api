@@ -25,7 +25,7 @@ const TaskSchema = new mongoose.Schema(
     },
     assignees: [
       {
-        type: mongoose.Schema.Types.ObjectId,
+        type: mongoose.Schema.ObjectId,
         ref: 'User',
         required: true,
       },
@@ -49,20 +49,16 @@ const TaskSchema = new mongoose.Schema(
       required: [true, 'Please provide a due date'],
     },
     createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: 'User',
       required: true,
     },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
-    },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  },
 );
 
 // Update project progress when task status changes

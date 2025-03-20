@@ -1,24 +1,9 @@
-const ActivityLog = require('../models/ActivityLog');
-
-const logActivity = async (
-  req,
-  user,
-  action,
-  resource,
-  resourceId,
-  details = '',
-) => {
-  try {
-    await ActivityLog.create({
-      user: user._id,
-      action,
-      resource,
-      resourceId,
-      details,
-    });
-  } catch (err) {
-    console.error('Error logging activity:', err);
-  }
+// @desc    Logs requests to console
+const logger = (req, res, next) => {
+  console.log(
+    `${req.method} ${req.protocol}://${req.get('host')}${req.originalUrl}`,
+  );
+  next();
 };
 
-module.exports = { logActivity };
+module.exports = logger;

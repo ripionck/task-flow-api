@@ -1,84 +1,98 @@
 const Task = require('../models/Task');
 const Project = require('../models/Project');
 const ActivityLog = require('../models/ActivityLog');
-const { logActivity } = require('../middleware/logger');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
+const paginateResults = require('../utils/paginateResults');
 
 // @desc    Get all tasks
 // @route   GET /api/tasks
 // @route   GET /api/projects/:projectId/tasks
 // @access  Private
 exports.getTasks = asyncHandler(async (req, res, next) => {
-  // If getting tasks for a specific project
+  let query;
+
   if (req.params.projectId) {
-    const tasks = await Task.find({ project: req.params.projectId })
-      .populate('assignees', 'name email role color displayId')
-      .populate('project');
+    // Check if project exists
+    const project = await Project.findById(req.params.projectId);
+    if (!project) {
+      return next(
+        new ErrorResponse(
+          `Project not found with id of ${req.params.projectId}`,
+          404,
+        ),
+      );
+    }
 
-    return res.status(200).json({
-      success: true,
-      count: tasks.length,
-      data: tasks,
-    });
+    query = Task.find({ project: req.params.projectId });
+  } else {
+    // Copy req.query
+    const reqQuery = { ...req.query };
+
+    // Fields to exclude from filtering
+    const removeFields = ['select', 'sort', 'page', 'limit'];
+    removeFields.forEach((param) => delete reqQuery[param]);
+
+    // Create query string
+    let queryStr = JSON.stringify(reqQuery);
+
+    // Create operators ($gt, $gte, etc)
+    queryStr = queryStr.replace(
+      /\b(gt|gte|lt|lte|in)\b/g,
+      (match) => `$${match}`,
+    );
+
+    // Finding resource
+    query = Task.find(JSON.parse(queryStr)).populate([
+      { path: 'project', select: 'name' },
+      { path: 'assignees' },
+    ]);
   }
 
-  // If admin wants all tasks
-  if (req.user.isAdmin && req.query.all === 'true') {
-    const tasks = await Task.find()
-      .populate('assignees', 'name email role color displayId')
-      .populate('project');
-
-    return res.status(200).json({
-      success: true,
-      count: tasks.length,
-      data: tasks,
-    });
+  // Select fields
+  if (req.query.select) {
+    const fields = req.query.select.split(',').join(' ');
+    query = query.select(fields);
   }
 
-  // For regular users, get only their assigned tasks
-  if (!req.user.isAdmin) {
-    const tasks = await Task.find({ assignees: { $in: [req.user.displayId] } })
-      .populate('assignees', 'name email role color displayId')
-      .populate('project');
-
-    return res.status(200).json({
-      success: true,
-      count: tasks.length,
-      data: tasks,
-    });
+  // Sort
+  if (req.query.sort) {
+    const sortBy = req.query.sort.split(',').join(' ');
+    query = query.sort(sortBy);
+  } else {
+    query = query.sort('-createdAt');
   }
 
-  res.status(200).json(res.advancedResults);
+  // Apply pagination
+  const { query: paginatedQuery, pagination } = await paginateResults(
+    Task,
+    query,
+    req,
+  );
+
+  // Execute query
+  const tasks = await paginatedQuery;
+
+  res.status(200).json({
+    success: true,
+    count: tasks.length,
+    pagination,
+    data: tasks,
+  });
 });
 
 // @desc    Get single task
 // @route   GET /api/tasks/:id
 // @access  Private
 exports.getTask = asyncHandler(async (req, res, next) => {
-  const task = await Task.findById(req.params.id)
-    .populate('assignees', 'name email role color displayId')
-    .populate('project');
+  const task = await Task.findById(req.params.id).populate([
+    { path: 'project', select: 'name' },
+    { path: 'assignees' },
+  ]);
 
   if (!task) {
     return next(
       new ErrorResponse(`Task not found with id of ${req.params.id}`, 404),
-    );
-  }
-
-  // Check if user is assigned to the task or project, or is an admin
-  if (
-    !task.assignees.some(
-      (assignee) => assignee.displayId === req.user.displayId,
-    ) &&
-    !task.project.assignees.includes(req.user.displayId) &&
-    !req.user.isAdmin
-  ) {
-    return next(
-      new ErrorResponse(
-        `User ${req.user.id} is not authorized to access this task`,
-        403,
-      ),
     );
   }
 
@@ -89,66 +103,37 @@ exports.getTask = asyncHandler(async (req, res, next) => {
 });
 
 // @desc    Create new task
-// @route   POST /api/tasks
 // @route   POST /api/projects/:projectId/tasks
 // @access  Private
 exports.createTask = asyncHandler(async (req, res, next) => {
-  // Add user to request body
-  req.body.createdBy = req.user.displayId;
-
-  // If projectId is in the route params, add it to the request body
-  if (req.params.projectId) {
-    req.body.project = req.params.projectId;
-  }
-
   // Check if project exists
-  const project = await Project.findById(req.body.project);
-
+  const project = await Project.findById(req.params.projectId);
   if (!project) {
     return next(
       new ErrorResponse(
-        `Project not found with id of ${req.body.project}`,
+        `Project not found with id of ${req.params.projectId}`,
         404,
       ),
     );
   }
 
-  // Check if user is assigned to the project or is an admin
-  if (!project.assignees.includes(req.user.displayId) && !req.user.isAdmin) {
-    return next(
-      new ErrorResponse(
-        `User ${req.user.id} is not authorized to add tasks to this project`,
-        403,
-      ),
-    );
-  }
+  // Add project and user to req.body
+  req.body.project = req.params.projectId;
+  req.body.createdBy = req.user.id;
 
-  // Ensure the creator is included in assignees
-  if (!req.body.assignees || !req.body.assignees.includes(req.user.displayId)) {
-    req.body.assignees = req.body.assignees || [];
-    req.body.assignees.push(req.user.displayId);
+  // Validate assignees exist
+  if (req.body.assignees && req.body.assignees.length > 0) {
+    for (const assigneeId of req.body.assignees) {
+      const userExists = await User.findById(assigneeId);
+      if (!userExists) {
+        return next(
+          new ErrorResponse(`User not found with id of ${assigneeId}`, 404),
+        );
+      }
+    }
   }
 
   const task = await Task.create(req.body);
-
-  // Log activity
-  await logActivity(
-    req,
-    req.user,
-    'created',
-    'task',
-    task._id,
-    `Created task: ${task.title}`,
-  );
-
-  // Create activity log
-  await ActivityLog.create({
-    userId: req.user.displayId,
-    action: 'created',
-    targetType: 'task',
-    targetId: task._id,
-    targetName: task.title,
-  });
 
   res.status(201).json({
     success: true,
@@ -168,28 +153,31 @@ exports.updateTask = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // Check if user is assigned to the task or is an admin
-  if (!task.assignees.includes(req.user.displayId) && !req.user.isAdmin) {
+  // Make sure user is task creator or admin
+  if (task.createdBy.toString() !== req.user.id && !req.user.isAdmin) {
     return next(
       new ErrorResponse(
         `User ${req.user.id} is not authorized to update this task`,
-        403,
+        401,
       ),
     );
+  }
+
+  // Validate assignees exist
+  if (req.body.assignees && req.body.assignees.length > 0) {
+    for (const assigneeId of req.body.assignees) {
+      const userExists = await User.findById(assigneeId);
+      if (!userExists) {
+        return next(
+          new ErrorResponse(`User not found with id of ${assigneeId}`, 404),
+        );
+      }
+    }
   }
 
   task = await Task.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,
-  });
-
-  // Create activity log
-  await ActivityLog.create({
-    userId: req.user.displayId,
-    action: 'updated',
-    targetType: 'task',
-    targetId: task._id,
-    targetName: task.title,
   });
 
   res.status(200).json({
@@ -210,26 +198,23 @@ exports.deleteTask = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // Check if user is the creator of the task or is an admin
-  if (task.createdBy !== req.user.displayId && !req.user.isAdmin) {
+  // Make sure user is task creator or admin
+  if (task.createdBy.toString() !== req.user.id && !req.user.isAdmin) {
     return next(
       new ErrorResponse(
         `User ${req.user.id} is not authorized to delete this task`,
-        403,
+        401,
       ),
     );
   }
 
-  await task.deleteOne();
+  await task.remove();
 
-  // Create activity log
-  await ActivityLog.create({
-    userId: req.user.displayId,
-    action: 'deleted',
-    targetType: 'task',
-    targetId: task._id,
-    targetName: task.title,
-  });
+  // Update project progress
+  const project = await Project.findById(task.project);
+  if (project) {
+    await project.calculateProgress();
+  }
 
   res.status(200).json({
     success: true,
@@ -243,8 +228,9 @@ exports.deleteTask = asyncHandler(async (req, res, next) => {
 exports.updateTaskStatus = asyncHandler(async (req, res, next) => {
   const { status } = req.body;
 
-  if (!status) {
-    return next(new ErrorResponse('Please provide a status', 400));
+  // Validate status
+  if (!['To Do', 'In Progress', 'Review', 'Done'].includes(status)) {
+    return next(new ErrorResponse(`Invalid status value`, 400));
   }
 
   let task = await Task.findById(req.params.id);
@@ -255,34 +241,55 @@ exports.updateTaskStatus = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // Check if user is assigned to the task or is an admin
-  if (!task.assignees.includes(req.user.displayId) && !req.user.isAdmin) {
+  task = await Task.findByIdAndUpdate(
+    req.params.id,
+    { status },
+    { new: true, runValidators: true },
+  );
+
+  // Project progress will be updated via the post-save hook
+
+  res.status(200).json({
+    success: true,
+    data: task,
+  });
+});
+
+// @desc    Update task assignees
+// @route   PUT /api/tasks/:id/assignees
+// @access  Private
+exports.updateTaskAssignees = asyncHandler(async (req, res, next) => {
+  const { assignees } = req.body;
+
+  if (!assignees || !Array.isArray(assignees)) {
     return next(
-      new ErrorResponse(
-        `User ${req.user.id} is not authorized to update this task status`,
-        403,
-      ),
+      new ErrorResponse('Please provide an array of assignee IDs', 400),
+    );
+  }
+
+  // Validate all assignees exist
+  for (const assigneeId of assignees) {
+    const userExists = await User.findById(assigneeId);
+    if (!userExists) {
+      return next(
+        new ErrorResponse(`User not found with id of ${assigneeId}`, 404),
+      );
+    }
+  }
+
+  let task = await Task.findById(req.params.id);
+
+  if (!task) {
+    return next(
+      new ErrorResponse(`Task not found with id of ${req.params.id}`, 404),
     );
   }
 
   task = await Task.findByIdAndUpdate(
     req.params.id,
-    { status },
-    {
-      new: true,
-      runValidators: true,
-    },
-  );
-
-  // Create activity log
-  const action = status === 'Done' ? 'completed' : 'updated';
-  await ActivityLog.create({
-    userId: req.user.displayId,
-    action,
-    targetType: 'task',
-    targetId: task._id,
-    targetName: task.title,
-  });
+    { assignees },
+    { new: true, runValidators: true },
+  ).populate('assignees');
 
   res.status(200).json({
     success: true,

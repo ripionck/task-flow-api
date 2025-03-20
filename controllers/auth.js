@@ -3,10 +3,36 @@ const jwt = require('jsonwebtoken');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 
+// Helper function to generate random color
+const generateRandomColor = () => {
+  const colors = [
+    '#FF6B6B', // Red
+    '#4ECDC4', // Teal
+    '#45B7D1', // Blue
+    '#96CEB4', // Green
+    '#FFEEAD', // Yellow
+    '#D4A5A5', // Pink
+    '#9B59B6', // Purple
+    '#3498DB', // Light Blue
+    '#E67E22', // Orange
+    '#1ABC9C', // Turquoise
+    '#34495E', // Navy
+    '#16A085', // Emerald
+    '#27AE60', // Dark Green
+    '#2980B9', // Ocean Blue
+    '#8E44AD', // Violet
+    '#2C3E50', // Dark Blue
+    '#F1C40F', // Sun Yellow
+    '#E74C3C', // Bright Red
+    '#95A5A6', // Gray
+    '#D35400', // Pumpkin
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
+
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
-// In the auth controller (modified register function)
 exports.register = asyncHandler(async (req, res, next) => {
   const { name, email, role, password } = req.body;
 
@@ -31,13 +57,16 @@ exports.register = asyncHandler(async (req, res, next) => {
 
   // Generate displayId
   const nameParts = name.split(' ').filter((part) => part.length > 0);
-  if (nameParts.length === 0) {
-    return next(new ErrorResponse('Name is required', 400));
+  if (nameParts.length < 2) {
+    return next(
+      new ErrorResponse('Please provide both first and last name', 400),
+    );
   }
 
   const firstName = nameParts[0];
   const lastName = nameParts[nameParts.length - 1];
-  let displayIdBase = (firstName[0] + lastName.slice(-1)).toUpperCase();
+  // Use first letter of firstName and first letter of lastName
+  let displayIdBase = (firstName[0] + lastName[0]).toUpperCase();
 
   let displayId = displayIdBase;
   let displayIdCounter = 1;
@@ -55,6 +84,7 @@ exports.register = asyncHandler(async (req, res, next) => {
     email,
     password,
     role,
+    color: generateRandomColor(),
   });
 
   sendTokenResponse(user, 200, res);

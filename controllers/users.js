@@ -2,6 +2,47 @@ const User = require('../models/User');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 
+// Helper function to generate display ID
+const generateDisplayId = async (firstName, lastName) => {
+  const baseDisplayId = (firstName[0] + lastName[0]).toUpperCase();
+  let displayId = baseDisplayId;
+  let counter = 1;
+
+  while (await User.findOne({ displayId })) {
+    displayId = `${baseDisplayId}${counter}`;
+    counter++;
+  }
+
+  return displayId;
+};
+
+// Helper function to generate random color
+const generateRandomColor = () => {
+  const colors = [
+    '#FF6B6B', // Red
+    '#4ECDC4', // Teal
+    '#45B7D1', // Blue
+    '#96CEB4', // Green
+    '#FFEEAD', // Yellow
+    '#D4A5A5', // Pink
+    '#9B59B6', // Purple
+    '#3498DB', // Light Blue
+    '#E67E22', // Orange
+    '#1ABC9C', // Turquoise
+    '#34495E', // Navy
+    '#16A085', // Emerald
+    '#27AE60', // Dark Green
+    '#2980B9', // Ocean Blue
+    '#8E44AD', // Violet
+    '#2C3E50', // Dark Blue
+    '#F1C40F', // Sun Yellow
+    '#E74C3C', // Bright Red
+    '#95A5A6', // Gray
+    '#D35400', // Pumpkin
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
+
 // @desc    Get all users
 // @route   GET /api/users
 // @access  Private/Admin
@@ -52,7 +93,43 @@ exports.getUser = asyncHandler(async (req, res, next) => {
 // @route   POST /api/users
 // @access  Private/Admin
 exports.createUser = asyncHandler(async (req, res, next) => {
-  const user = await User.create(req.body);
+  const { name, email, password, role } = req.body;
+
+  // Generate username from name
+  let baseUsername = name
+    .toLowerCase()
+    .replace(/\s+/g, '.')
+    .replace(/[^a-z.]/g, '');
+  let username = baseUsername;
+  let usernameCounter = 1;
+
+  while (await User.findOne({ username })) {
+    username = `${baseUsername}${usernameCounter}`;
+    usernameCounter++;
+  }
+
+  // Generate displayId from first and last name
+  const nameParts = name.split(' ').filter((part) => part.length > 0);
+  if (nameParts.length < 2) {
+    return next(
+      new ErrorResponse('Please provide both first and last name', 400),
+    );
+  }
+
+  const firstName = nameParts[0];
+  const lastName = nameParts[nameParts.length - 1];
+  const displayId = await generateDisplayId(firstName, lastName);
+
+  // Create user with generated fields
+  const user = await User.create({
+    username,
+    displayId,
+    name,
+    email,
+    password,
+    role,
+    color: generateRandomColor(),
+  });
 
   res.status(201).json({
     success: true,

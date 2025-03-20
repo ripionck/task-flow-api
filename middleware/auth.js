@@ -27,13 +27,8 @@ exports.protect = asyncHandler(async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Check if user still exists
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      return next(new ErrorResponse('User no longer exists', 401));
-    }
+    req.user = await User.findById(decoded.id);
 
-    req.user = user;
     next();
   } catch (err) {
     return next(new ErrorResponse('Not authorized to access this route', 401));
@@ -43,7 +38,7 @@ exports.protect = asyncHandler(async (req, res, next) => {
 // Grant access to specific roles
 exports.authorize = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    if (!roles.includes(req.user.role) && !req.user.isAdmin) {
       return next(
         new ErrorResponse(
           `User role ${req.user.role} is not authorized to access this route`,
@@ -53,32 +48,4 @@ exports.authorize = (...roles) => {
     }
     next();
   };
-};
-
-// Socket.io authentication middleware
-exports.socketAuth = async (socket, next) => {
-  try {
-    const token =
-      socket.handshake.auth.token ||
-      socket.handshake.headers.authorization?.split(' ')[1];
-
-    if (!token) {
-      return next(new Error('Authentication error: Token not provided'));
-    }
-
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Check if user still exists
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      return next(new Error('Authentication error: User not found'));
-    }
-
-    // Attach user to socket
-    socket.user = user;
-    next();
-  } catch (error) {
-    return next(new Error('Authentication error: Invalid token'));
-  }
 };

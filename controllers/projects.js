@@ -1,73 +1,75 @@
 const Project = require('../models/Project');
-const Task = require('../models/Task');
-const ActivityLog = require('../models/ActivityLog');
-const { logActivity } = require('../middleware/logger');
+const User = require('../models/User');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
+const paginateResults = require('../utils/paginateResults');
 
 // @desc    Get all projects
 // @route   GET /api/projects
 // @access  Private
 exports.getProjects = asyncHandler(async (req, res, next) => {
-  // If admin wants all projects
-  if (req.user.isAdmin && req.query.all === 'true') {
-    const projects = await Project.find().populate(
-      'assignees',
-      'name email role color displayId',
-    );
+  let query;
 
-    return res.status(200).json({
-      success: true,
-      count: projects.length,
-      data: projects,
-    });
+  // Copy req.query
+  const reqQuery = { ...req.query };
+
+  // Fields to exclude from filtering
+  const removeFields = ['select', 'sort', 'page', 'limit'];
+  removeFields.forEach((param) => delete reqQuery[param]);
+
+  // Create query string
+  let queryStr = JSON.stringify(reqQuery);
+
+  // Create operators ($gt, $gte, etc)
+  queryStr = queryStr.replace(
+    /\b(gt|gte|lt|lte|in)\b/g,
+    (match) => `$${match}`,
+  );
+
+  // Finding resource
+  query = Project.find(JSON.parse(queryStr)).populate('assignees');
+
+  // Select fields
+  if (req.query.select) {
+    const fields = req.query.select.split(',').join(' ');
+    query = query.select(fields);
   }
 
-  if (!req.query.assignees && !req.user.isAdmin) {
-    // This won't work with advancedResults as it's already processed
-    // Instead, we need to modify the query before advancedResults is called
-    const projects = await Project.find({
-      assignees: { $in: [req.user.displayId] },
-    }).populate('assignees', 'name email role color displayId');
-
-    return res.status(200).json({
-      success: true,
-      count: projects.length,
-      data: projects,
-    });
+  // Sort
+  if (req.query.sort) {
+    const sortBy = req.query.sort.split(',').join(' ');
+    query = query.sort(sortBy);
+  } else {
+    query = query.sort('-createdAt');
   }
 
-  // For admins with filtering through advancedResults
-  res.status(200).json(res.advancedResults);
+  // Apply pagination
+  const { query: paginatedQuery, pagination } = await paginateResults(
+    Project,
+    query,
+    req,
+  );
+
+  // Execute query
+  const projects = await paginatedQuery;
+
+  res.status(200).json({
+    success: true,
+    count: projects.length,
+    pagination,
+    data: projects,
+  });
 });
 
 // @desc    Get single project
 // @route   GET /api/projects/:id
 // @access  Private
 exports.getProject = asyncHandler(async (req, res, next) => {
-  const project = await Project.findById(req.params.id).populate(
-    'assignees',
-    'name email role color displayId',
-  );
+  const project = await Project.findById(req.params.id).populate('assignees');
 
   if (!project) {
     return next(
       new ErrorResponse(`Project not found with id of ${req.params.id}`, 404),
-    );
-  }
-
-  // Check if user is assigned to the project or is an admin
-  if (
-    !project.assignees.some(
-      (assignee) => assignee.displayId === req.user.displayId,
-    ) &&
-    !req.user.isAdmin
-  ) {
-    return next(
-      new ErrorResponse(
-        `User ${req.user.id} is not authorized to access this project`,
-        403,
-      ),
     );
   }
 
@@ -81,34 +83,22 @@ exports.getProject = asyncHandler(async (req, res, next) => {
 // @route   POST /api/projects
 // @access  Private
 exports.createProject = asyncHandler(async (req, res, next) => {
-  // Add user to request body
-  req.body.createdBy = req.user.displayId;
+  // Add user to req.body
+  req.body.createdBy = req.user.id;
 
-  // Ensure the creator is included in assignees
-  if (!req.body.assignees || !req.body.assignees.includes(req.user.displayId)) {
-    req.body.assignees = req.body.assignees || [];
-    req.body.assignees.push(req.user.displayId);
+  // Validate assignees exist
+  if (req.body.assignees && req.body.assignees.length > 0) {
+    for (const assigneeId of req.body.assignees) {
+      const userExists = await User.findById(assigneeId);
+      if (!userExists) {
+        return next(
+          new ErrorResponse(`User not found with id of ${assigneeId}`, 404),
+        );
+      }
+    }
   }
 
   const project = await Project.create(req.body);
-  // Log activity
-  await logActivity(
-    req,
-    req.user,
-    'created',
-    'project',
-    project._id,
-    `Created project: ${project.name}`,
-  );
-
-  // Create activity log
-  await ActivityLog.create({
-    userId: req.user.displayId,
-    action: 'created',
-    targetType: 'project',
-    targetId: project._id,
-    targetName: project.name,
-  });
 
   res.status(201).json({
     success: true,
@@ -128,28 +118,31 @@ exports.updateProject = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // Check if user is assigned to the project or is an admin
-  if (!project.assignees.includes(req.user.displayId) && !req.user.isAdmin) {
+  // Make sure user is project creator or admin
+  if (project.createdBy.toString() !== req.user.id && !req.user.isAdmin) {
     return next(
       new ErrorResponse(
         `User ${req.user.id} is not authorized to update this project`,
-        403,
+        401,
       ),
     );
+  }
+
+  // Validate assignees exist
+  if (req.body.assignees && req.body.assignees.length > 0) {
+    for (const assigneeId of req.body.assignees) {
+      const userExists = await User.findById(assigneeId);
+      if (!userExists) {
+        return next(
+          new ErrorResponse(`User not found with id of ${assigneeId}`, 404),
+        );
+      }
+    }
   }
 
   project = await Project.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,
-  });
-
-  // Create activity log
-  await ActivityLog.create({
-    userId: req.user.displayId,
-    action: 'updated',
-    targetType: 'project',
-    targetId: project._id,
-    targetName: project.name,
   });
 
   res.status(200).json({
@@ -170,29 +163,18 @@ exports.deleteProject = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // Check if user is the creator of the project or is an admin
-  if (project.createdBy !== req.user.displayId && !req.user.isAdmin) {
+  // Make sure user is project creator or admin
+  if (project.createdBy.toString() !== req.user.id && !req.user.isAdmin) {
     return next(
       new ErrorResponse(
         `User ${req.user.id} is not authorized to delete this project`,
-        403,
+        401,
       ),
     );
   }
 
-  // Delete all tasks associated with this project
-  await Task.deleteMany({ project: req.params.id });
-
-  await project.deleteOne();
-
-  // Create activity log
-  await ActivityLog.create({
-    userId: req.user.displayId,
-    action: 'deleted',
-    targetType: 'project',
-    targetId: project._id,
-    targetName: project.name,
-  });
+  // This will trigger the cascade delete of related tasks
+  await project.remove();
 
   res.status(200).json({
     success: true,
@@ -200,10 +182,30 @@ exports.deleteProject = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Toggle star status of project
+// @desc    Get project progress
+// @route   GET /api/projects/:id/progress
+// @access  Private
+exports.getProjectProgress = asyncHandler(async (req, res, next) => {
+  const project = await Project.findById(req.params.id);
+
+  if (!project) {
+    return next(
+      new ErrorResponse(`Project not found with id of ${req.params.id}`, 404),
+    );
+  }
+
+  const progress = await project.calculateProgress();
+
+  res.status(200).json({
+    success: true,
+    data: { progress },
+  });
+});
+
+// @desc    Toggle project star status
 // @route   PUT /api/projects/:id/star
 // @access  Private
-exports.toggleStarProject = asyncHandler(async (req, res, next) => {
+exports.toggleProjectStar = asyncHandler(async (req, res, next) => {
   let project = await Project.findById(req.params.id);
 
   if (!project) {
@@ -212,23 +214,11 @@ exports.toggleStarProject = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // Check if user is assigned to the project
-  if (!project.assignees.includes(req.user.displayId) && !req.user.isAdmin) {
-    return next(
-      new ErrorResponse(
-        `User ${req.user.id} is not authorized to star this project`,
-        403,
-      ),
-    );
-  }
-
+  // Toggle the starred status
   project = await Project.findByIdAndUpdate(
     req.params.id,
     { starred: !project.starred },
-    {
-      new: true,
-      runValidators: true,
-    },
+    { new: true },
   );
 
   res.status(200).json({
